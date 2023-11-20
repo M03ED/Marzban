@@ -321,11 +321,8 @@ def edit_command(call: types.CallbackQuery):
         user = UserResponse.from_orm(db_user)
     mem_store.set(f'{call.message.chat.id}:username', username)
     mem_store.set(f'{call.message.chat.id}:data_limit', db_user.data_limit)
-    mem_store.set(f'{call.message.chat.id}:expire_date', datetime.fromtimestamp(
-        db_user.expire) if db_user.expire else None)
-    mem_store.set(
-        f'{call.message.chat.id}:protocols',
-        {protocol.value: inbounds for protocol, inbounds in db_user.inbounds.items()})
+    mem_store.set(f'{call.message.chat.id}:expire_date', db_user.expire or None)
+    mem_store.set(f'{call.message.chat.id}:protocols', {protocol.value: inbounds for protocol, inbounds in db_user.inbounds.items()})
     bot.edit_message_text(
         f"📝 Editing user `{username}`",
         call.message.chat.id,
@@ -488,8 +485,8 @@ def users_command(call: types.CallbackQuery):
 
 
 def get_user_info_text(
-        status: str, username: str, sub_url: str, data_limit: int = None,
-        usage: int = None, expire: int = None, note: str = None) -> str:
+        status: str, username: str,sub_url : str, data_limit: int = None,
+        usage: int = None, expire=None, note: str = None) -> str:
     statuses = {
         'active': '✅',
         'expired': '🕰',
@@ -502,8 +499,8 @@ def get_user_info_text(
 ├─🔋 <b>Data limit:</b> <code>{readable_size(data_limit) if data_limit else 'Unlimited'}</code>
 │          └─<b>Data Used:</b> <code>{readable_size(usage) if usage else "-"}</code>
 │
-├─📅 <b>Expiry Date:</b> <code>{datetime.fromtimestamp(expire).date() if expire else 'Never'}</code>
-│           └─<b>Days left:</b> <code>{(datetime.fromtimestamp(expire or 0) - datetime.now()).days if expire else '-'}</code>
+├─📅 <b>Expiry Date:</b> <code>{expire.date() if expire else 'Never'}</code>
+│           └─<b>Days left:</b> <code>{(expire - datetime.now()).days if expire else '-'}</code>
 │
 '''
     if note:
@@ -745,28 +742,29 @@ def template_charge_command(call: types.CallbackQuery):
             except:
                 note = None
             text = get_user_info_text(
-                status='active', username=username, sub_url=user.subscription_url,
-                expire=int(
-                    ((datetime.fromtimestamp(user.expire) if user.expire else today) +
-                     relativedelta(seconds=template.expire_duration)).timestamp()),
-                data_limit=(user.data_limit - user.used_traffic + template.data_limit)
-                if user.data_limit else template.data_limit, usage=0, note=note)
-            bot.edit_message_text(
-                f'''\
+                status='active',
+                username=username,
+                sub_url=user.subscription_url,
+                expire=(user.expire or today) + relativedelta(seconds=template.expire_duration),
+                data_limit=(
+                            user.data_limit - user.used_traffic + template.data_limit) if user.data_limit else template.data_limit,
+                usage=0, note=note)
+            bot.edit_message_text(f'''\
 ‼️ <b>If add template <u>Bandwidth</u> and <u>Time</u> to the user, the user will be this</b>:\n\n\
 {text}\n\n\
 <b>Add template <u>Bandwidth</u> and <u>Time</u> to user or Reset to <u>Template default</u></b>⁉️''',
-                call.message.chat.id, call.message.message_id, parse_mode='html',
-                reply_markup=BotKeyboard.charge_add_or_reset(
-                    username=username, template_id=template_id))
-        elif (not user.data_limit and not user.expire) or (user.used_traffic > user.data_limit) or (now > datetime.fromtimestamp(user.expire)):
+                call.message.chat.id,
+                call.message.message_id,
+                parse_mode='html',
+                reply_markup=BotKeyboard.charge_add_or_reset(username=username, template_id=template_id))
+        elif (not user.data_limit and not user.expire) or (user.used_traffic > user.data_limit) or (now > user.expire):
             crud.reset_user_data_usage(db, db_user)
             expire_date = None
             if template.expire_duration:
                 expire_date = today + relativedelta(seconds=template.expire_duration)
             modify = UserModify(
                 status=UserStatusModify.active,
-                expire=int(expire_date.timestamp()) if expire_date else 0,
+                expire=expire_date or 0,
                 data_limit=template.data_limit,
             )
             db_user = crud.update_user(db, db_user, modify)
@@ -780,7 +778,7 @@ def template_charge_command(call: types.CallbackQuery):
                 status='active',
                 username=username,
                 sub_url=user.subscription_url,
-                expire=int(expire_date.timestamp()),
+                expire=expire_date,
                 data_limit=template.data_limit,
                 usage=0, note=note)
             bot.edit_message_text(
@@ -801,12 +799,12 @@ def template_charge_command(call: types.CallbackQuery):
 <u><b>Last status</b></u>
 <b>├Traffic Limit :</b> <code>{readable_size(user.data_limit) if user.data_limit else "Unlimited"}</code>
 <b>├Expire Date :</b> <code>\
-{datetime.fromtimestamp(user.expire).strftime('%H:%M:%S %Y-%m-%d') if user.expire else "Never"}</code>
+{user.expire.strftime('%H:%M:%S %Y-%m-%d') if user.expire else "Never"}</code>
 ➖➖➖➖➖➖➖➖➖
 <u><b>New status</b></u>
 <b>├Traffic Limit :</b> <code>{readable_size(db_user.data_limit) if db_user.data_limit else "Unlimited"}</code>
 <b>├Expire Date :</b> <code>\
-{datetime.fromtimestamp(db_user.expire).strftime('%H:%M:%S %Y-%m-%d') if db_user.expire else "Never"}</code>
+{db_user.expire.strftime('%H:%M:%S %Y-%m-%d') if db_user.expire else "Never"}</code>
 ➖➖➖➖➖➖➖➖➖
 <b>By :</b> <a href="tg://user?id={call.from_user.id}">{call.from_user.full_name}</a>'''
                 try:
@@ -819,14 +817,14 @@ def template_charge_command(call: types.CallbackQuery):
             except:
                 note = None
             text = get_user_info_text(
-                status='active', username=username, sub_url=user.subscription_url,
-                expire=int(
-                    ((datetime.fromtimestamp(user.expire) if user.expire else today) +
-                     relativedelta(seconds=template.expire_duration)).timestamp()),
-                data_limit=(user.data_limit - user.used_traffic + template.data_limit)
-                if user.data_limit else template.data_limit, usage=0, note=note)
-            bot.edit_message_text(
-                f'''\
+                status='active',
+                username=username,
+                sub_url=user.subscription_url,
+                expire=(user.expire or today) + relativedelta(seconds=template.expire_duration),
+                data_limit=(
+                            user.data_limit - user.used_traffic + template.data_limit) if user.data_limit else template.data_limit,
+                usage=0, note=note)
+            bot.edit_message_text(f'''\
 ‼️ <b>If add template <u>Bandwidth</u> and <u>Time</u> to the user, the user will be this</b>:\n\n\
 {text}\n\n\
 <b>Add template <u>Bandwidth</u> and <u>Time</u> to user or Reset to <u>Template default</u></b>⁉️''',
@@ -1286,7 +1284,7 @@ def confirm_user_command(call: types.CallbackQuery):
 <b>Username :</b> <code>{db_user.username}</code>
 <b>Traffic Limit :</b> <code>{readable_size(db_user.data_limit) if db_user.data_limit else "Unlimited"}</code>
 <b>Expire Date :</b> <code>\
-{datetime.fromtimestamp(db_user.expire).strftime('%H:%M:%S %Y-%m-%d') if db_user.expire else "Never"}</code>
+{db_user.expire.strftime('%H:%M:%S %Y-%m-%d') if db_user.expire else "Never"}</code>
 ➖➖➖➖➖➖➖➖➖
 <b>By :</b> <a href="tg://user?id={chat_id}">{full_name}</a>'''
             try:
@@ -1454,17 +1452,16 @@ def confirm_user_command(call: types.CallbackQuery):
                     expire_date = today + relativedelta(seconds=template.expire_duration)
                 modify = UserModify(
                     status=UserStatus.active,
-                    expire=int(expire_date.timestamp()) if expire_date else 0,
+                    expire=expire_date or 0,
                     data_limit=template.data_limit,
                 )
             else:
                 expire_date = None
                 if template.expire_duration:
-                    expire_date = (datetime.fromtimestamp(user.expire)
-                                   if user.expire else today) + relativedelta(seconds=template.expire_duration)
+                    expire_date = (user.expire or today) + relativedelta(seconds=template.expire_duration)
                 modify = UserModify(
                     status=UserStatus.active,
-                    expire=int(expire_date.timestamp()) if expire_date else 0,
+                    expire=expire_date or 0,
                     data_limit=(user.data_limit or 0) - user.used_traffic + template.data_limit,
                 )
             db_user = crud.update_user(db, db_user, modify)
@@ -1502,12 +1499,12 @@ def confirm_user_command(call: types.CallbackQuery):
 <u><b>Last status</b></u>
 <b>├Traffic Limit :</b> <code>{readable_size(user.data_limit) if user.data_limit else "Unlimited"}</code>
 <b>├Expire Date :</b> <code>\
-{datetime.fromtimestamp(user.expire).strftime('%H:%M:%S %Y-%m-%d') if user.expire else "Never"}</code>
+{user.expire.strftime('%H:%M:%S %Y-%m-%d') if user.expire else "Never"}</code>
 ➖➖➖➖➖➖➖➖➖
 <u><b>New status</b></u>
 <b>├Traffic Limit :</b> <code>{readable_size(db_user.data_limit) if db_user.data_limit else "Unlimited"}</code>
 <b>├Expire Date :</b> <code>\
-{datetime.fromtimestamp(db_user.expire).strftime('%H:%M:%S %Y-%m-%d') if db_user.expire else "Never"}</code>
+{db_user.expire.strftime('%H:%M:%S %Y-%m-%d') if db_user.expire else "Never"}</code>
 ➖➖➖➖➖➖➖➖➖
 <b>By :</b> <a href="tg://user?id={chat_id}">{full_name}</a>\
 '''
@@ -1554,10 +1551,11 @@ def confirm_user_command(call: types.CallbackQuery):
                     del proxies[protocol]
 
             modify = UserModify(
-                expire=int(mem_store.get(f'{call.message.chat.id}:expire_date').timestamp())
-                if mem_store.get(f'{call.message.chat.id}:expire_date') else 0, data_limit=mem_store.get(
-                    f"{call.message.chat.id}:data_limit"),
-                proxies=proxies, inbounds=inbounds)
+                expire=mem_store.get(f'{call.message.chat.id}:expire_date') if mem_store.get(f'{call.message.chat.id}:expire_date') else 0,
+                data_limit=mem_store.get(f"{call.message.chat.id}:data_limit"),
+                proxies=proxies,
+                inbounds=inbounds
+            )
             last_user = UserResponse.from_orm(db_user)
             db_user = crud.update_user(db, db_user, modify)
 
@@ -1612,9 +1610,9 @@ def confirm_user_command(call: types.CallbackQuery):
 ➖➖➖➖➖➖➖➖➖
 <b>Username :</b> <code>{user.username}</code>
 <b>Last Expire Date :</b> <code>\
-{datetime.fromtimestamp(last_user.expire).strftime('%H:%M:%S %Y-%m-%d') if last_user.expire else "Never"}</code>
+{last_user.expire.strftime('%H:%M:%S %Y-%m-%d') if last_user.expire else "Never"}</code>
 <b>New Expire Date :</b> <code>\
-{datetime.fromtimestamp(user.expire).strftime('%H:%M:%S %Y-%m-%d') if user.expire else "Never"}</code>{tag}'''
+{user.expire.strftime('%H:%M:%S %Y-%m-%d') if user.expire else "Never"}</code>{tag}'''
                 try:
                     bot.send_message(TELEGRAM_LOGGER_CHANNEL_ID, text, 'HTML')
                 except:
@@ -1658,10 +1656,10 @@ def confirm_user_command(call: types.CallbackQuery):
 
         new_user = UserCreate(
             username=mem_store.get(f'{call.message.chat.id}:username'),
-            expire=int(mem_store.get(f'{call.message.chat.id}:expire_date').timestamp())
-            if mem_store.get(f'{call.message.chat.id}:expire_date') else None,
-            data_limit=mem_store.get(f'{call.message.chat.id}:data_limit')
-            if mem_store.get(f'{call.message.chat.id}:data_limit') else None,
+            expire=mem_store.get(f'{call.message.chat.id}:expire_date')\
+                if mem_store.get(f'{call.message.chat.id}:expire_date') else None,
+            data_limit=mem_store.get(f'{call.message.chat.id}:data_limit')\
+                if mem_store.get(f'{call.message.chat.id}:data_limit') else None,
             proxies=proxies,
             inbounds=inbounds)
 
@@ -1715,7 +1713,7 @@ def confirm_user_command(call: types.CallbackQuery):
 <b>Username :</b> <code>{user.username}</code>
 <b>Traffic Limit :</b> <code>{readable_size(user.data_limit) if user.data_limit else "Unlimited"}</code>
 <b>Expire Date :</b> <code>\
-{datetime.fromtimestamp(user.expire).strftime('%H:%M:%S %Y-%m-%d') if user.expire else "Never"}</code>
+{user.expire.strftime('%H:%M:%S %Y-%m-%d') if user.expire else "Never"}</code>
 <b>Proxies :</b> <code>{"" if not proxies else ", ".join([proxy.type for proxy in proxies])}</code>
 ➖➖➖➖➖➖➖➖➖
 <b>By :</b> <a href="tg://user?id={chat_id}">{full_name}</a>'''
@@ -1741,10 +1739,10 @@ def confirm_user_command(call: types.CallbackQuery):
                     try:
                         crud.remove_user(db, user)
                         xray.operations.remove_user(user)
-                        deleted += 1
-                        f.write(
-                            f'{user.username}\
-\t{datetime.fromtimestamp(user.expire) if user.expire else "never"}\
+                        deleted +=1
+                        f.write(\
+f'{user.username}\
+\t{user.expire or "never"}\
 \t{readable_size(user.used_traffic) if user.used_traffic else 0}\
 /{readable_size(user.data_limit) if user.data_limit else "Unlimited"}\
 \t{user.status}\n')
@@ -1785,9 +1783,9 @@ def confirm_user_command(call: types.CallbackQuery):
                         if user.data_limit and user.status not in [UserStatus.limited, UserStatus.expired]:
                             user = crud.update_user(db, user, UserModify(data_limit=(user.data_limit + data_limit)))
                             counter += 1
-                            f.write(
-                                f'{user.username}\
-\t{datetime.fromtimestamp(user.expire) if user.expire else "never"}\
+                            f.write(\
+f'{user.username}\
+\t{user.expire or "never"}\
 \t{readable_size(user.used_traffic) if user.used_traffic else 0}\
 /{readable_size(user.data_limit) if user.data_limit else "Unlimited"}\
 \t{user.status}\n')
@@ -1830,13 +1828,11 @@ def confirm_user_command(call: types.CallbackQuery):
                         if user.expire and user.status not in [UserStatus.limited, UserStatus.expired]:
                             user = crud.update_user(
                                 db, user,
-                                UserModify(
-                                    expire=int(
-                                        (datetime.fromtimestamp(user.expire) + relativedelta(days=days)).timestamp())))
+                                UserModify(expire=user.expire + relativedelta(days=days)))
                             counter += 1
-                            f.write(
-                                f'{user.username}\
-\t{datetime.fromtimestamp(user.expire) if user.expire else "never"}\
+                            f.write(\
+f'{user.username}\
+\t{user.expire or "never"}\
 \t{readable_size(user.used_traffic) if user.used_traffic else 0}\
 /{readable_size(user.data_limit) if user.data_limit else "Unlimited"}\
 \t{user.status}\n')
