@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -213,6 +213,9 @@ def create_user(db: Session, user: UserCreate, admin: Admin = None):
                   settings=settings.dict(no_obj=True),
                   excluded_inbounds=excluded_inbounds)
         )
+    
+    if user.expire == 0:
+        user.expire = None
 
     dbuser = User(
         username=user.username,
@@ -278,10 +281,10 @@ def update_user(db: Session, dbuser: User, modify: UserModify):
             else:
                 dbuser.status = UserStatus.limited
 
-    if modify.expire is not None:
+    if (modify.expire == 0) or (modify.expire is not None):
         dbuser.expire = (modify.expire or None)
         if dbuser.status in (UserStatus.active, UserStatus.expired):
-            if not dbuser.expire or dbuser.expire > datetime.utcnow().timestamp():
+            if not dbuser.expire or dbuser.expire > datetime.utcnow():
                 dbuser.status = UserStatus.active
                 if not dbuser.expire or (calculate_expiration_days(
                         dbuser.expire) > NOTIFY_DAYS_LEFT):
@@ -295,8 +298,8 @@ def update_user(db: Session, dbuser: User, modify: UserModify):
     if modify.data_limit_reset_strategy is not None:
         dbuser.data_limit_reset_strategy = modify.data_limit_reset_strategy.value
 
-    if modify.on_hold_timeout is not None:
-        dbuser.on_hold_timeout = modify.on_hold_timeout
+    if (modify.on_hold_timeout == 0) or (modify.on_hold_timeout is not None):
+        dbuser.on_hold_timeout = (modify.on_hold_timeout or None)
 
     if modify.on_hold_expire_duration is not None:
         dbuser.on_hold_expire_duration = modify.on_hold_expire_duration
@@ -317,7 +320,7 @@ def reset_user_data_usage(db: Session, dbuser: User):
 
     dbuser.used_traffic = 0
     dbuser.node_usages.clear()
-    if dbuser.status not in (UserStatus.expired or UserStatus.disabled):
+    if dbuser.status not in [UserStatus.expired , UserStatus.disabled, UserStatus.on_hold]:
         dbuser.status = UserStatus.active.value
     db.add(dbuser)
 
@@ -381,8 +384,7 @@ def set_owner(db: Session, dbuser: User, admin: Admin):
 
 
 def start_user_expire(db: Session, dbuser: User):
-
-    expire = int(datetime.utcnow().timestamp()) + dbuser.on_hold_expire_duration
+    expire = datetime.utcnow() + timedelta(seconds=dbuser.on_hold_expire_duration) 
     dbuser.expire = expire
     db.commit()
     db.refresh(dbuser)

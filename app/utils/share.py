@@ -843,33 +843,38 @@ def format_time_left(seconds_left: int) -> str:
     result = []
     if months:
         result.append(f"{months}m")
+        result.append(f"{int(months)}m")
     if days:
         result.append(f"{days}d")
+        result.append(f"{int(days)}d")
     if hours and (days < 7):
         result.append(f"{hours}h")
+        result.append(f"{int(hours)}h")
     if minutes and not (months or days):
         result.append(f"{minutes}m")
+        result.append(f"{int(minutes)}m")
     if seconds and not (months or days):
         result.append(f"{seconds}s")
-    return " ".join(result)
+        result.append(f"{int(seconds)}s")
+    return ' '.join(result)
 
 
 def setup_format_variables(extra_data: dict) -> dict:
     from app.models.user import UserStatus
 
     user_status = extra_data.get("status")
-    expire_timestamp = extra_data.get("expire")
+    expire = extra_data.get('expire')
     on_hold_expire_duration = extra_data.get("on_hold_expire_duration")
 
     if user_status != UserStatus.on_hold:
-        if expire_timestamp is not None and expire_timestamp >= 0:
-            seconds_left = expire_timestamp - int(dt.utcnow().timestamp())
-            expire_datetime = dt.fromtimestamp(expire_timestamp)
-            expire_date = expire_datetime.date()
+        if expire :
+            expire_timestamp = dt.timestamp(expire)
+            seconds_left = (expire_timestamp - dt.utcnow()).total_seconds()
+            expire_date = expire.date()
             jalali_expire_date = jd.fromgregorian(
                 year=expire_date.year, month=expire_date.month, day=expire_date.day
             ).strftime("%Y-%m-%d")
-            days_left = (expire_datetime - dt.utcnow()).days + 1
+            days_left = (expire - dt.utcnow()).days + 1
             time_left = format_time_left(seconds_left)
         else:
             days_left = "∞"
