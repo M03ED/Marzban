@@ -243,6 +243,9 @@ class SingBoxConfiguration(str):
         if net == 'h2':
             net = 'http'
             alpn = 'h2'
+        elif net == 'h3':
+            net = 'http'
+            alpn = 'h3'
         elif net in ['tcp', 'raw'] and headers == 'http':
             net = 'http'
 
@@ -264,8 +267,6 @@ class SingBoxConfiguration(str):
                 early_data_header_name=early_data_header_name,
                 random_user_agent=random_user_agent,
             )
-        else:
-            config["network"] = net
 
         if tls in ('tls', 'reality'):
             config['tls'] = self.tls_config(sni=sni, fp=fp, tls=tls,
@@ -287,7 +288,7 @@ class SingBoxConfiguration(str):
         path = inbound["path"]
 
         # not supported by sing-box
-        if net in ("kcp", "splithttp") or (net == "quic" and inbound["header_type"] != "none"):
+        if net in ("kcp", "splithttp", "xhttp") or (net == "quic" and inbound["header_type"] != "none"):
             return
 
         if net in ("grpc", "gun"):

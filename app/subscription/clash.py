@@ -109,13 +109,12 @@ class ClashConfiguration(object):
             config["headers"]["Host"] = host
         if random_user_agent:
             config["headers"]["User-Agent"] = choice(self.user_agent_list)
-        if max_early_data:
+        if max_early_data and not is_httpupgrade:
             config["max-early-data"] = max_early_data
             config["early-data-header-name"] = early_data_header_name
         if is_httpupgrade:
             config["v2ray-http-upgrade"] = True
-            if max_early_data:
-                config["v2ray-http-upgrade-fast-open"] = True
+            config["v2ray-http-upgrade-fast-open"] = True
 
         return config
 
@@ -148,6 +147,7 @@ class ClashConfiguration(object):
 
     def make_node(self,
                   name: str,
+                  remark: str,
                   type: str,
                   server: str,
                   port: int,
@@ -175,9 +175,9 @@ class ClashConfiguration(object):
             is_httpupgrade = True
         else:
             is_httpupgrade = False
+        if network in ("http", "h2", "h3"):
+            network = "h2"
 
-        remark = self._remark_validation(name)
-        self.proxy_remarks.append(remark)
         node = {
             'name': remark,
             'type': type,
@@ -245,18 +245,20 @@ class ClashConfiguration(object):
         mux_config = mux_json["clash"]
 
         if mux_enable:
-            net_opts['smux'] = mux_config
-            net_opts['smux']["enabled"] = True
+            node['smux'] = mux_config
 
         return node
 
     def add(self, remark: str, address: str, inbound: dict, settings: dict):
         # not supported by clash
-        if inbound['network'] in ("kcp", "splithttp"):
+        if inbound['network'] in ("kcp", "splithttp", "xhttp"):
             return
+
+        proxy_remark = self._remark_validation(remark)
 
         node = self.make_node(
             name=remark,
+            remark=proxy_remark,
             type=inbound['protocol'],
             server=address,
             port=inbound['port'],
@@ -289,11 +291,13 @@ class ClashConfiguration(object):
             return
 
         self.data['proxies'].append(node)
+        self.proxy_remarks.append(proxy_remark)
 
 
 class ClashMetaConfiguration(ClashConfiguration):
     def make_node(self,
                   name: str,
+                  remark: str,
                   type: str,
                   server: str,
                   port: int,
@@ -313,6 +317,7 @@ class ClashMetaConfiguration(ClashConfiguration):
                   random_user_agent: bool = False):
         node = super().make_node(
             name=name,
+            remark=remark,
             type=type,
             server=server,
             port=port,
@@ -337,11 +342,14 @@ class ClashMetaConfiguration(ClashConfiguration):
 
     def add(self, remark: str, address: str, inbound: dict, settings: dict):
         # not supported by clash-meta
-        if inbound['network'] in ("kcp", "splithttp") or (inbound['network'] == "quic" and inbound["header_type"] != "none"):
+        if inbound['network'] in ("kcp", "splithttp", "xhttp") or (inbound['network'] == "quic" and inbound["header_type"] != "none"):
             return
+
+        proxy_remark = self._remark_validation(remark)
 
         node = self.make_node(
             name=remark,
+            remark=proxy_remark,
             type=inbound['protocol'],
             server=address,
             port=inbound['port'],
@@ -383,3 +391,4 @@ class ClashMetaConfiguration(ClashConfiguration):
             return
 
         self.data['proxies'].append(node)
+        self.proxy_remarks.append(proxy_remark)

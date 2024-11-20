@@ -264,7 +264,7 @@ class XRayConfig(dict):
 
                 elif net == 'ws':
                     path = net_settings.get('path', '')
-                    host = net_settings.get('headers', {}).get('Host')
+                    host = net_settings.get('host', '') or net_settings.get('headers', {}).get('Host')
 
                     settings['header_type'] = ''
 
@@ -295,14 +295,12 @@ class XRayConfig(dict):
                     host = net_settings.get('host', '')
                     settings['host'] = [host]
 
-                elif net == 'splithttp':
+                elif net in ('splithttp','xhttp'):
                     settings['path'] = net_settings.get('path', '')
                     host = net_settings.get('host', '')
                     settings['host'] = [host]
-                    settings['scMaxEachPostBytes'] = net_settings.get('scMaxEachPostBytes',
-                                                                      net_settings.get('maxUploadSize', 1000000))
-                    settings['scMaxConcurrentPosts'] = net_settings.get('scMaxConcurrentPosts',
-                                                                        net_settings.get('maxConcurrentUploads', 100))
+                    settings['scMaxEachPostBytes'] = net_settings.get('scMaxEachPostBytes', 1000000)
+                    settings['scMaxConcurrentPosts'] = net_settings.get('scMaxConcurrentPosts', 100)
                     settings['scMinPostsIntervalMs'] = net_settings.get('scMinPostsIntervalMs', 30)
                     settings['xPaddingBytes'] = net_settings.get('xPaddingBytes', "100-1000")
                     settings['xmux'] = net_settings.get('xmux', {})
@@ -314,14 +312,20 @@ class XRayConfig(dict):
                     settings['host'] = header.get('domain', '')
                     settings['path'] = net_settings.get('seed', '')
 
+                elif net in ("http", "h2", "h3"):
+                    net_settings = stream.get("httpSettings", {})
+
+                    settings['host'] = net_settings.get('host') or net_settings.get('Host', '')
+                    settings['path'] = net_settings.get('path', '')
+
                 else:
                     settings['path'] = net_settings.get('path', '')
                     host = net_settings.get(
                         'host', {}) or net_settings.get('Host', {})
-                    if host and isinstance(host, list):
-                        settings['host'] = host[0]
-                    elif host and isinstance(host, str):
+                    if host and isinstance(host, str):
                         settings['host'] = host
+                    elif host and isinstance(host, list):
+                        settings['host'] = host[0]
 
             self.inbounds.append(settings)
             self.inbounds_by_tag[inbound['tag']] = settings
