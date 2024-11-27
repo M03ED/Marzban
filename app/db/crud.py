@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Dict, List, Optional, Tuple, Union
 
-from sqlalchemy import and_, delete, or_
+from sqlalchemy import and_, delete, func, or_
 from sqlalchemy.orm import Query, Session, joinedload
 from sqlalchemy.sql.functions import coalesce
 
@@ -14,6 +14,7 @@ from app.db.models import (
     JWT,
     TLS,
     Admin,
+    AdminUsageLogs,
     NextPlan,
     Node,
     NodeUsage,
@@ -26,7 +27,7 @@ from app.db.models import (
     System,
     User,
     UserTemplate,
-    UserUsageResetLogs
+    UserUsageResetLogs,
 )
 from app.models.admin import AdminCreate, AdminModify, AdminPartialModify
 from app.models.node import NodeCreate, NodeModify, NodeStatus, NodeUsageResponse
@@ -38,7 +39,7 @@ from app.models.user import (
     UserModify,
     UserResponse,
     UserStatus,
-    UserUsageResponse
+    UserUsageResponse,
 )
 from app.models.user_template import UserTemplateCreate, UserTemplateModify
 from app.utils.helpers import calculate_expiration_days, calculate_usage_percent
@@ -662,8 +663,9 @@ def reset_all_users_data_usage(db: Session, admin: Optional[Admin] = None):
             dbuser.status = UserStatus.active
         dbuser.usage_logs.clear()
         dbuser.node_usages.clear()
-        db.delete(dbuser.next_plan)
-        dbuser.next_plan = None
+        if dbuser.next_plan:
+            db.delete(dbuser.next_plan)
+            dbuser.next_plan = None
         db.add(dbuser)
 
     db.commit()
@@ -681,7 +683,7 @@ def disable_all_active_users(db: Session, admin: Optional[Admin] = None):
     if admin:
         query = query.filter(User.admin == admin)
 
-    query.update({User.status: UserStatus.disabled}, synchronize_session=False)
+    query.update({User.status: UserStatus.disabled, User.last_status_change: datetime.utcnow()}, synchronize_session=False)
 
     db.commit()
 
@@ -704,8 +706,10 @@ def activate_all_disabled_users(db: Session, admin: Optional[Admin] = None):
         query_for_active_users = query_for_active_users.filter(User.admin == admin)
         query_for_on_hold_users = query_for_on_hold_users.filter(User.admin == admin)
 
-    query_for_on_hold_users.update({User.status: UserStatus.on_hold}, synchronize_session=False)
-    query_for_active_users.update({User.status: UserStatus.active}, synchronize_session=False)
+    query_for_on_hold_users.update(
+        {User.status: UserStatus.on_hold, User.last_status_change: datetime.utcnow()}, synchronize_session=False)
+    query_for_active_users.update(
+        {User.status: UserStatus.active, User.last_status_change: datetime.utcnow()}, synchronize_session=False)
 
     db.commit()
 
@@ -849,6 +853,8 @@ def start_user_expire(db: Session, dbuser: User) -> User:
     """
     expire = int(datetime.utcnow().timestamp()) + dbuser.on_hold_expire_duration
     dbuser.expire = expire
+    dbuser.on_hold_expire_duration = None
+    dbuser.on_hold_timeout = None
     db.commit()
     db.refresh(dbuser)
     return dbuser
@@ -1064,6 +1070,14 @@ def reset_admin_usage(db: Session, dbadmin: Admin) -> int:
     Returns:
         Admin: The updated admin.
     """
+    if (dbadmin.users_usage == 0):
+        return dbadmin
+    
+    usage_log = AdminUsageLogs(
+        admin=dbadmin,
+        used_traffic_at_reset=dbadmin.users_usage
+    )
+    db.add(usage_log)
     dbadmin.users_usage = 0
 
     db.commit()
@@ -1475,3 +1489,10 @@ def delete_notification_reminder(db: Session, dbreminder: NotificationReminder) 
     db.delete(dbreminder)
     db.commit()
     return
+
+
+def count_online_users(db: Session, hours: int = 24):
+    twenty_four_hours_ago = datetime.utcnow() - timedelta(hours=hours)
+    query = db.query(func.count(User.id)).filter(User.online_at.isnot(
+        None), User.online_at >= twenty_four_hours_ago)
+    return query.scalar()
